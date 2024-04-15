@@ -8,13 +8,11 @@ stdenv.mkDerivation {
   meta.mainProgram = "msync";
 
   installPhase = ''
-    mkdir -p $out/bin
-    mkdir -p $out/share
+    mkdir -p $out/bin $out/share
     cp $src/msync $out/bin/
-    # TODO: /share/ ??? but then it doesnt work outside of derivation
-    cp $src/template.lua $out/bin/
+    cp $src/template.lua $out/share/
   '';
 
   buildInputs = [ makeWrapper ];
-  postFixup = "wrapProgram $out/bin/msync --set PATH ${lib.makeBinPath [coreutils findutils lsyncd ps rsync-notify-multiple]}";
+  postFixup = "wrapProgram $out/bin/msync --set PATH ${lib.makeBinPath [coreutils findutils lsyncd ps rsync-notify-multiple]} --set LSYNCD_TEMPLATE $out/share/template.lua";
 }

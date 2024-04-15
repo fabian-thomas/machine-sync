@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+if [ -z "$LSYNCD_TEMPLATE" ]; then
+    LSYNCD_TEMPLATE="$(dirname "$0")/template.lua"
+fi
+
 if [ -z "$XDG_RUNTIME_DIR" ]; then
     echo "Don't know where to store program state. Set XDG_RUNTIME_DIR."
     exit 1
@@ -64,9 +68,9 @@ function start {
     export MACHINES="${_machines[*]}"
     IFS="$prev_ifs"
     if [ -z "$debug" ]; then
-        lsyncd -nodaemon "$(dirname "$0")/template.lua" "${_args[@]}" &>"$dir/logs" & disown
+        lsyncd -nodaemon "$LSYNCD_TEMPLATE" "${_args[@]}" &>"$dir/logs" & disown
     else
-        lsyncd -nodaemon "$(dirname "$0")/template.lua" "${_args[@]}"
+        lsyncd -nodaemon "$LSYNCD_TEMPLATE" "${_args[@]}"
     fi
     echo "$!" > "$dir/pid"
     echo "${_args[@]}" > "$dir/args"
