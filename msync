@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+if [ -z "$XDG_RUNTIME_DIR" ]; then
+    echo "Don't know where to store program state. Set XDG_RUNTIME_DIR."
+    exit 1
+fi
+
+LSYNCD_DIR="$XDG_RUNTIME_DIR/machine-sync"
+COUNT_FILE="$LSYNCD_DIR/count"
+
+function create_dir {
+    if [ ! -f "$COUNT_FILE" ]; then
+        id=1
+    else
+        id=$(( $(cat "$COUNT_FILE") + 1 ))
+    fi
+    echo "$id" > "$COUNT_FILE"
+    mkdir -p "$LSYNCD_DIR/$id"
+    echo "$LSYNCD_DIR/$id"
+}
+
+function status {
+    mkdir -p "$LSYNCD_DIR"
+    # so that empty is reported correctly
+    find "$LSYNCD_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%P\n' | while read -r id; do
+        pid=$(< "$LSYNCD_DIR/$id/pid")
+        if ps -p "$pid" > /dev/null; then
+            dir=$(basename "$(< "$LSYNCD_DIR/$id/dir")")
+            machines=$(< "$LSYNCD_DIR/$id/machines")
+            pid=$(< "$LSYNCD_DIR/$id/pid")
+            echo "$id ($pid): $dir -> $machines"
+        else
+            rm -rf "${LSYNCD_DIR:--}/$id"
+        fi
+    done
+}
+
+function get_instance_from_dir {
+    dir=$1
+    mkdir -p "$LSYNCD_DIR"
+    find "$LSYNCD_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%P\n' | while read -r id; do
+        if [ "$(< "$LSYNCD_DIR/$id/dir")" = "$dir" ]; then
+            echo "$id"
+            return 0
+        fi
+    done
+}
+
+function start {
+    local -n _args=$1
+    local -n _machines=$2
+
+    # stop existing session of the same dir
+    existing=$(get_instance_from_dir "$PWD")
+    if [ -n "$existing" ]; then
+        echo "Replacing with existing session $existing syncing to $(< "$LSYNCD_DIR/$existing/machines")"
+        stop "$existing"
+    fi
+
+    dir=$(create_dir)
+
+    prev_ifs="$IFS"
+    IFS=:
+    export MACHINES="${_machines[*]}"
+    IFS="$prev_ifs"
+    if [ -z "$debug" ]; then
+        lsyncd -nodaemon "$(dirname "$0")/template.lua" "${_args[@]}" &>"$dir/logs" & disown
+    else
+        lsyncd -nodaemon "$(dirname "$0")/template.lua" "${_args[@]}"
+    fi
+    echo "$!" > "$dir/pid"
+    echo "${_args[@]}" > "$dir/args"
+    echo "$PWD" > "$dir/dir"
+    echo "${_machines[@]}" > "$dir/machines"
+}
+
+function stop {
+    for id in "$@"; do
+        kill "$(< "$LSYNCD_DIR/$id/pid")" 2>/dev/null
+        rm -rf "${LSYNCD_DIR:--}/$id"
+    done
+}
+
+case "$1" in
+    "")
+        cmd="status"
+        shift
+        ;;
+    start|status|stop)
+        cmd="$1"
+        shift
+        ;;
+    *)
+        echo "first arg needs to be cmd (status|stop|start)"
+        exit 1
+        ;;
+esac
+
+case "$cmd" in
+    status)
+        status
+        ;;
+    start)
+        machines=()
+        args=()
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --debug)
+                    debug=1
+                    shift
+                    ;;
+                -*)
+                    args+=("$1")
+                    shift
+                    ;;
+                *)
+                    if [[ $1 == *:* ]]; then
+                        echo "Do not pass targets with : as machines in there"
+                        exit 1
+                    fi
+                    machines+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+        start args machines
+        ;;
+    stop)
+        stop "$@"
+        ;;
+esac

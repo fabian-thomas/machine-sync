@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+# NOTE: There is also rsync's batch mode, but for that we have to have two identical trees
+# on each machine. This here supports syncing to multiple remote machines in any state.
+
+args=()
+machines=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --machine)
+            machines+=("$2")
+            shift 2
+            ;;
+        *)
+            args+=("$1")
+            shift 1
+            ;;
+    esac
+done
+
+# NOTE: filter lists are passed from stdin and this page below says that even stdout and err
+# are important to keep clean, but till now we had no problems with those
+# https://lsyncd.github.io/lsyncd/faq/postscript/
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT INT ABRT TERM
+cp /dev/stdin "$tmp"
+msg="$(basename "${args[-2]}") ->"
+for machine in "${machines[@]}"; do
+    msg+=" $machine"
+    rsync "${args[@]::${#args[@]}-1}" "$machine:${args[-1]}" < "$tmp" &
+done
+
+for job in $(jobs -p); do
+    if ! wait "$job"; then
+        notify-send -- "$machine failed"
+        err=1
+    fi
+done
+[ -n "$err" ] && exit 1
+
+readarray -d $'\0' -t files < "$tmp"
+IFS=$'\n'
+notify-send -- "$msg" "${files[*]}"
+
+exit 0
