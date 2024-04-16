@@ -15,6 +15,7 @@ The Nix package has the advantage that all dependencies are automatically fetche
 ### Notifications
 
 `msync` sends out a notification with changed files on each change in the synced directory.
+
 ![Image of notification sent out by msync.](imgs/notification.png)
 
 ### Ignoring Files
