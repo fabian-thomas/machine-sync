@@ -22,7 +22,7 @@ The Nix package has the advantage that all dependencies are automatically fetche
 `msync` reads and applies the excludes specified in `.gitignore`.
 When there are files that you want to force sync, add a comment line with `# noldignore` to your `.gitignore`.
 Every pattern that is listed after this comment, will be excluded when reading the `.gitignore`.
-Put any files that you want to exclude, but not via `.gitignore` in a custom file called `.ldignore`.
+Put any files that you want to exclude, but not via `.gitignore`, in a custom file called `.ldignore`.
 `msync` will read and apply the patterns in that file identical to patterns in `.gitignore`.
 
 ### SSH Multiplexing

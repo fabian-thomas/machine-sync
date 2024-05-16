@@ -23,7 +23,7 @@ settings {
     nodaemon = false,
 }
 
-local excludes = { 'build' }
+local excludes = {}
 
 function loadExcludes (path)
     local file = io.open(path, "r")
