@@ -1,1 +1,3 @@
-result
+/target
+/result
+/.cargo-home

@@ -1,0 +1,37 @@
+[package]
+name = "msync"
+version = "2.0.0"
+edition = "2021"
+description = "Live-sync a directory to one or more machines over rsync/ssh."
+license = "MIT"
+repository = "https://github.com/fabian-thomas/machine-sync"
+default-run = "msync"
+
+[[bin]]
+name = "msync"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "wrap_help"] }
+clap_complete = { version = "4", features = ["unstable-dynamic"] }
+ignore = "0.4"
+notify-debouncer-full = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+indexmap = { version = "2", features = ["serde"] }
+fs2 = "0.4"
+humantime = "2"
+owo-colors = "4"
+comfy-table = "7"
+nix = { version = "0.27", features = ["process", "signal", "fs", "user", "term"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
