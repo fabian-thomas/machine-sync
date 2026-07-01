@@ -127,17 +127,17 @@ Enable them by adding the relevant snippet to your shell startup file.
 
 ```bash
 # bash (~/.bashrc)
-command -v msync >/dev/null 2>&1 && source <(COMPLETE=bash msync)
+command -v msync >/dev/null 2>&1 && source <(COMPLETE=bash msync) || true
 ```
 
 ```zsh
 # zsh (~/.zshrc)
-(( $+commands[msync] )) && source <(COMPLETE=zsh msync)
+(( $+commands[msync] )) && source <(COMPLETE=zsh msync) || true
 ```
 
 ```fish
 # fish (~/.config/fish/config.fish)
-type -q msync && COMPLETE=fish msync | source
+type -q msync && COMPLETE=fish msync | source; or true
 ```
 
 `msync completions <shell>` prints the basic registration line for your shell.
