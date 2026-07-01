@@ -40,6 +40,5 @@ fn run() -> Result<()> {
         Command::Resume(a) => commands::resume(&a),
         Command::Restart(a) => commands::restart(&a),
         Command::Logs(a) => commands::logs(&a),
-        Command::Completions(a) => commands::completions(&a),
     }
 }

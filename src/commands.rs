@@ -1,6 +1,6 @@
 //! Implementations of the CLI subcommands.
 
-use crate::cli::{CompletionsArgs, LogsArgs, SelectArgs, StartArgs, StatusArgs};
+use crate::cli::{LogsArgs, SelectArgs, StartArgs, StatusArgs};
 use crate::config::Config;
 use crate::registry::{Entry, RegistryGuard, State};
 use crate::spec::SyncSpec;
@@ -351,31 +351,6 @@ pub fn logs(args: &LogsArgs) -> Result<()> {
             pos = len;
         }
     }
-}
-
-#[allow(clippy::unnecessary_wraps)] // uniform Result signature for command dispatch
-pub fn completions(args: &CompletionsArgs) -> Result<()> {
-    use clap_complete::Shell;
-    // msync uses clap's dynamic completion engine (so it can suggest live sync
-    // ids/names and config entries). Registration is done by sourcing the hook
-    // produced by `COMPLETE=<shell> msync`.
-    let (shell, line) = match args.shell {
-        Shell::Bash => ("bash", "source <(COMPLETE=bash msync)"),
-        Shell::Zsh => ("zsh", "source <(COMPLETE=zsh msync)"),
-        Shell::Fish => ("fish", "COMPLETE=fish msync | source"),
-        Shell::Elvish => ("elvish", "eval (COMPLETE=elvish msync | slurp)"),
-        Shell::PowerShell => (
-            "powershell",
-            "COMPLETE=powershell msync | Invoke-Expression",
-        ),
-        other => {
-            println!("Dynamic completion: set COMPLETE={other} and run msync to emit the hook.");
-            return Ok(());
-        }
-    };
-    println!("# msync {shell} completion. Add this to your shell startup file:");
-    println!("{line}");
-    Ok(())
 }
 
 // ---- helpers ----

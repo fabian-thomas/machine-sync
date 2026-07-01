@@ -67,8 +67,6 @@ pub enum Command {
     Restart(SelectArgs),
     /// Show (or follow) a sync's log.
     Logs(LogsArgs),
-    /// Print shell completion setup instructions.
-    Completions(CompletionsArgs),
 }
 
 #[derive(Debug, Args)]
@@ -148,11 +146,4 @@ pub struct LogsArgs {
     /// Follow the log (like `tail -f`).
     #[arg(short, long)]
     pub follow: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct CompletionsArgs {
-    /// Target shell.
-    #[arg(value_enum)]
-    pub shell: clap_complete::Shell,
 }

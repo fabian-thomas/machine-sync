@@ -140,8 +140,6 @@ command -v msync >/dev/null 2>&1 && source <(COMPLETE=bash msync) || true
 type -q msync && COMPLETE=fish msync | source; or true
 ```
 
-`msync completions <shell>` prints the basic registration line for your shell.
-
 ## Installation
 
 ### Nix
