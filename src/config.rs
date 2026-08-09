@@ -3,6 +3,8 @@
 //! ```toml
 //! # default = "project"        # optional override of the default sync
 //!
+//! ignore = [".direnv", ".git/*.lock"]   # applies to every sync in this file
+//!
 //! [sync.dotfiles]
 //! dir = "~/dotfiles"
 //! targets = ["laptop", "server:/etc/dots"]
@@ -24,6 +26,9 @@ const PROJECT_CONFIG: &str = ".msync.toml";
 struct ConfigFile {
     #[serde(default)]
     default: Option<String>,
+    /// Ignore patterns applied to every sync resolved from this file.
+    #[serde(default)]
+    ignore: Vec<String>,
     #[serde(default)]
     sync: IndexMap<String, SyncEntry>,
     #[serde(default)]
@@ -42,6 +47,8 @@ struct SyncEntry {
     notify: Vec<String>,
     #[serde(default)]
     rsync_args: Vec<String>,
+    #[serde(default)]
+    ignore: Vec<String>,
     #[serde(default)]
     debounce_ms: Option<u64>,
     #[serde(default)]
@@ -80,11 +87,22 @@ impl Config {
         Ok(Config { project, global })
     }
 
+    /// Ignore patterns that apply to every sync: the top-level `ignore` list of the
+    /// global config followed by that of the project config (later patterns win).
+    pub fn base_ignore(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for src in [&self.global, &self.project].into_iter().flatten() {
+            out.extend(src.file.ignore.iter().cloned());
+        }
+        out
+    }
+
     /// Resolve a single named sync (project takes precedence over global).
     pub fn resolve_sync(&self, name: &str) -> Option<Result<SyncSpec>> {
+        let base = self.base_ignore();
         for src in [&self.project, &self.global].into_iter().flatten() {
             if let Some(entry) = src.file.sync.get(name) {
-                return Some(entry.to_spec(name, &src.base));
+                return Some(entry.to_spec(name, &src.base, &base));
             }
         }
         None
@@ -123,6 +141,7 @@ impl Config {
     /// explicit `default = "name"`, else a per-sync `default = true`, else the
     /// first-defined sync in the project config.
     pub fn default_sync(&self) -> Result<SyncSpec> {
+        let base = self.base_ignore();
         let proj = self
             .project
             .as_ref()
@@ -133,22 +152,23 @@ impl Config {
                 .with_context(|| format!("default = {name:?} but no such sync"))?;
         }
         if let Some((name, entry)) = proj.file.sync.iter().find(|(_, e)| e.default == Some(true)) {
-            return entry.to_spec(name, &proj.base);
+            return entry.to_spec(name, &proj.base, &base);
         }
         let (name, entry) = proj
             .file
             .sync
             .first()
             .context("project config defines no syncs")?;
-        entry.to_spec(name, &proj.base)
+        entry.to_spec(name, &proj.base, &base)
     }
 
     /// All syncs across project + global (project overrides global by name).
     pub fn all_syncs(&self) -> Result<Vec<SyncSpec>> {
+        let base = self.base_ignore();
         let mut seen: IndexMap<String, SyncSpec> = IndexMap::new();
         for src in [&self.global, &self.project].into_iter().flatten() {
             for (name, entry) in &src.file.sync {
-                seen.insert(name.clone(), entry.to_spec(name, &src.base)?);
+                seen.insert(name.clone(), entry.to_spec(name, &src.base, &base)?);
             }
         }
         if seen.is_empty() {
@@ -176,7 +196,9 @@ impl Config {
 }
 
 impl SyncEntry {
-    fn to_spec(&self, name: &str, base: &Path) -> Result<SyncSpec> {
+    /// Build a runnable spec. `base_ignore` holds the top-level `ignore` patterns
+    /// that apply to every sync; the entry's own patterns are appended so they win.
+    fn to_spec(&self, name: &str, base: &Path, base_ignore: &[String]) -> Result<SyncSpec> {
         let dir = expand_dir(&self.dir, base);
         let targets = self
             .targets
@@ -187,6 +209,8 @@ impl SyncEntry {
         if targets.is_empty() {
             bail!("sync {name:?} has no targets");
         }
+        let mut ignore = base_ignore.to_vec();
+        ignore.extend(self.ignore.iter().cloned());
         Ok(SyncSpec {
             name: Some(name.to_string()),
             dir,
@@ -196,6 +220,7 @@ impl SyncEntry {
             extra_rsync: self.rsync_args.clone(),
             notify: self.notify.clone(),
             debounce_ms: self.debounce_ms,
+            ignore,
         })
     }
 }
@@ -238,5 +263,66 @@ fn expand_dir(dir: &str, base: &Path) -> PathBuf {
         expanded
     } else {
         base.join(expanded)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn loaded(toml_src: &str) -> Loaded {
+        Loaded {
+            file: toml::from_str(toml_src).unwrap(),
+            base: PathBuf::from("/base"),
+        }
+    }
+
+    /// Global top-level, project top-level and the entry's own list all apply, in
+    /// that order (so a later negation can re-include).
+    #[test]
+    fn ignore_lists_merge_in_precedence_order() {
+        let config = Config {
+            global: Some(loaded("ignore = [\"g1\", \"g2\"]\n")),
+            project: Some(loaded(
+                "ignore = [\"p1\"]\n\
+                 [sync.a]\n\
+                 dir = \"/tmp/a\"\n\
+                 targets = [\"host\"]\n\
+                 ignore = [\"e1\"]\n",
+            )),
+        };
+        let spec = config.resolve_sync("a").unwrap().unwrap();
+        assert_eq!(spec.ignore, ["g1", "g2", "p1", "e1"]);
+    }
+
+    /// A sync with no `ignore` of its own still inherits the top-level lists, and
+    /// every resolution path agrees.
+    #[test]
+    fn every_resolution_path_applies_base_ignore() {
+        let config = Config {
+            global: Some(loaded("ignore = [\"g1\"]\n")),
+            project: Some(loaded(
+                "ignore = [\"p1\"]\n\
+                 [sync.a]\n\
+                 dir = \"/tmp/a\"\n\
+                 targets = [\"host\"]\n\
+                 [group.grp]\n\
+                 members = [\"a\"]\n",
+            )),
+        };
+        let expected = ["g1", "p1"];
+        assert_eq!(config.default_sync().unwrap().ignore, expected);
+        assert_eq!(config.all_syncs().unwrap()[0].ignore, expected);
+        assert_eq!(config.resolve("a").unwrap()[0].ignore, expected);
+        assert_eq!(config.resolve("grp").unwrap()[0].ignore, expected);
+    }
+
+    #[test]
+    fn ignore_is_optional() {
+        let config = Config {
+            global: None,
+            project: Some(loaded("[sync.a]\ndir = \"/tmp/a\"\ntargets = [\"host\"]\n")),
+        };
+        assert!(config.default_sync().unwrap().ignore.is_empty());
     }
 }

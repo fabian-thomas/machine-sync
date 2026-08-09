@@ -25,6 +25,10 @@ pub struct SyncSpec {
     /// Notification backends to use; empty means "auto-detect".
     #[serde(default)]
     pub notify: Vec<String>,
+    /// Extra ignore patterns from the config (gitignore syntax), anchored at
+    /// [`SyncSpec::dir`]. Applied in order, so later patterns win.
+    #[serde(default)]
+    pub ignore: Vec<String>,
     /// Debounce window in milliseconds for coalescing change events. `None` uses
     /// [`DEFAULT_DEBOUNCE_MS`].
     #[serde(default)]

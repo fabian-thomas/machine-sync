@@ -46,6 +46,8 @@ pub struct Entry {
     pub notify: Vec<String>,
     #[serde(default)]
     pub debounce_ms: Option<u64>,
+    #[serde(default)]
+    pub ignore: Vec<String>,
 }
 
 impl Entry {
@@ -60,6 +62,7 @@ impl Entry {
             extra_rsync: self.extra_rsync.clone(),
             notify: self.notify.clone(),
             debounce_ms: self.debounce_ms,
+            ignore: self.ignore.clone(),
         }
     }
 
@@ -185,4 +188,45 @@ pub fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A registry written by an older version has no `ignore` field; it must still
+    /// load (and `resume` must not choke on it).
+    #[test]
+    fn entry_without_ignore_field_still_loads() {
+        let json = r#"{
+            "id": 1,
+            "name": null,
+            "dir": "/tmp/x",
+            "targets": [{"host": "h", "path": null}],
+            "state": "running",
+            "pid": null,
+            "started_at": 0,
+            "log": "/tmp/x.log"
+        }"#;
+        let entry: Entry = serde_json::from_str(json).unwrap();
+        assert!(entry.ignore.is_empty());
+        assert!(entry.spec().ignore.is_empty());
+    }
+
+    #[test]
+    fn spec_round_trips_ignore_patterns() {
+        let json = r#"{
+            "id": 1,
+            "name": null,
+            "dir": "/tmp/x",
+            "targets": [{"host": "h", "path": null}],
+            "state": "running",
+            "pid": null,
+            "started_at": 0,
+            "log": "/tmp/x.log",
+            "ignore": [".direnv", ".git/*.lock"]
+        }"#;
+        let entry: Entry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.spec().ignore, [".direnv", ".git/*.lock"]);
+    }
 }

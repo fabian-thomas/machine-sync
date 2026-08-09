@@ -60,7 +60,7 @@ debounce_ms = 300            # optional; coalescing window (default 700)
 members = ["dotfiles", "project"]
 ```
 
-Per-sync options: `dir`, `targets`, `delete`, `dry_run`, `notify`, `rsync_args`, `debounce_ms`, and `default`.
+Per-sync options: `dir`, `targets`, `delete`, `dry_run`, `notify`, `rsync_args`, `ignore`, `debounce_ms`, and `default`.
 They can be set in either the global or the project config.
 
 ```
@@ -88,6 +88,19 @@ It auto-detects the best backend:
 `msync` applies your `.gitignore` rules.
 You can add extra patterns in a `.msyncignore` file (same syntax as `.gitignore`).
 
+Patterns can also be set in the config, at the top level or per sync:
+
+```toml
+ignore = [".direnv", ".git/*.lock", ".git/rebase-merge"]
+
+[sync.project]
+dir = "~/code/project"
+targets = ["server:~/project"]
+ignore = ["scratch/"]        # appended to the top-level list
+```
+
+Patterns are anchored at the synced directory, and later ones win.
+
 To **force-sync** a file that would otherwise be ignored, un-ignore it via a negation in `.msyncignore`:
 
 ```
@@ -96,6 +109,7 @@ To **force-sync** a file that would otherwise be ignored, un-ignore it via a neg
 ```
 
 Alternatively, add a `# nomsyncignore` marker line to `.gitignore`; any pattern listed *after* it is force-synced.
+Force-sync patterns take precedence over the config `ignore` lists.
 
 > **Legacy compatibility:** the old `.ldignore` file and the `# noldignore` marker are still recognized and behave the same way.
 

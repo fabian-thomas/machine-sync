@@ -107,7 +107,7 @@ fn run_loop(id: u64, spec: &SyncSpec) -> Result<()> {
     ));
 
     // Initial full sync.
-    let included = ignoreset::enumerate(&root)?;
+    let included = ignoreset::enumerate(&root, &spec.ignore)?;
     do_sync(id, spec, tty.as_deref(), &basename, &included, true);
 
     // Watch for changes.
@@ -140,7 +140,9 @@ fn run_loop(id: u64, spec: &SyncSpec) -> Result<()> {
             continue;
         }
         // Refresh the included set and intersect (drops ignored & deleted files).
-        let included: HashSet<PathBuf> = ignoreset::enumerate(&root)?.into_iter().collect();
+        let included: HashSet<PathBuf> = ignoreset::enumerate(&root, &spec.ignore)?
+            .into_iter()
+            .collect();
         let mut changed: Vec<PathBuf> = candidates
             .iter()
             .filter_map(|abs| {

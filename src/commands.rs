@@ -40,7 +40,7 @@ pub fn start(args: &StartArgs) -> Result<()> {
             }
         }
         if !adhoc_targets.is_empty() {
-            specs.push(adhoc_spec(adhoc_targets, &cwd, args)?);
+            specs.push(adhoc_spec(adhoc_targets, &cwd, args, &config)?);
         }
     }
 
@@ -81,7 +81,12 @@ fn adhoc_or_default(config: &Config, _cwd: &Path, _args: &StartArgs) -> Result<S
     config.default_sync()
 }
 
-fn adhoc_spec(targets: Vec<Target>, cwd: &Path, args: &StartArgs) -> Result<SyncSpec> {
+fn adhoc_spec(
+    targets: Vec<Target>,
+    cwd: &Path,
+    args: &StartArgs,
+    config: &Config,
+) -> Result<SyncSpec> {
     let dir = args.dir.clone().unwrap_or_else(|| cwd.to_path_buf());
     let dir = dir
         .canonicalize()
@@ -95,6 +100,7 @@ fn adhoc_spec(targets: Vec<Target>, cwd: &Path, args: &StartArgs) -> Result<Sync
         extra_rsync: args.rsync_args.clone(),
         notify: args.notify.clone(),
         debounce_ms: args.debounce,
+        ignore: config.base_ignore(),
     })
 }
 
@@ -144,6 +150,7 @@ fn start_one(mut spec: SyncSpec, foreground: bool) -> Result<()> {
             extra_rsync: spec.extra_rsync.clone(),
             notify: spec.notify.clone(),
             debounce_ms: spec.debounce_ms,
+            ignore: spec.ignore.clone(),
         });
         guard.save()?;
     }
@@ -164,7 +171,7 @@ fn run_once(spec: &SyncSpec) -> Result<()> {
         dir: root.clone(),
         ..spec.clone()
     };
-    let files = ignoreset::enumerate(&root)?;
+    let files = ignoreset::enumerate(&root, &spec.ignore)?;
     let results = transport::sync_files(&spec, &files)?;
     let basename = transport::source_basename(&root);
     let failures: Vec<_> = results.iter().filter(|r| !r.success).collect();

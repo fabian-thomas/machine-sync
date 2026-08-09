@@ -21,13 +21,15 @@ const FORCE_PATTERN_FILES: &[&str] = &[".gitignore", ".msyncignore", ".ldignore"
 ///
 /// This is the union of two passes:
 ///   1. an `ignore`-crate walk that respects nested `.gitignore`, `.msyncignore`,
-///      `.ldignore`, `.git/info/exclude` and the global gitignore;
+///      `.ldignore`, `.git/info/exclude` and the global gitignore, plus the
+///      `extra` patterns from the config (anchored at `root`);
 ///   2. a plain walk whose results are filtered to only the force-sync patterns.
 ///
 /// The union guarantees the force markers *reverse the ignoring* of matching files
 /// (adding them back in) without turning into a whitelist that would exclude
-/// everything else.
-pub fn enumerate(root: &Path) -> Result<Vec<PathBuf>> {
+/// everything else. It also means an explicit force-sync pattern beats the
+/// config-level `extra` patterns.
+pub fn enumerate(root: &Path, extra: &[String]) -> Result<Vec<PathBuf>> {
     let mut set: BTreeSet<PathBuf> = BTreeSet::new();
 
     // Pass 1: gitignore-respecting walk.
@@ -41,6 +43,18 @@ pub fn enumerate(root: &Path) -> Result<Vec<PathBuf>> {
         .parents(true);
     for name in CUSTOM_IGNORE_FILES {
         builder.add_custom_ignore_filename(name);
+    }
+    if let Some(extra) = build_extra_matcher(root, extra)? {
+        // `filter_entry` prunes whole subtrees, so a directory pattern such as
+        // `.git/rebase-merge` skips everything beneath it. Depth 0 is the root
+        // itself, which must never be filtered out.
+        builder.filter_entry(move |dent| {
+            if dent.depth() == 0 {
+                return true;
+            }
+            let is_dir = dent.file_type().is_some_and(|t| t.is_dir());
+            !extra.matched(dent.path(), is_dir).is_ignore()
+        });
     }
     let walk = builder.build();
     for dent in walk {
@@ -81,6 +95,19 @@ pub fn enumerate(root: &Path) -> Result<Vec<PathBuf>> {
     }
 
     Ok(set.into_iter().collect())
+}
+
+/// Build a matcher for the config-supplied ignore patterns, anchored at `root`.
+fn build_extra_matcher(root: &Path, patterns: &[String]) -> Result<Option<Gitignore>> {
+    if patterns.is_empty() {
+        return Ok(None);
+    }
+    let mut b = GitignoreBuilder::new(root);
+    for p in patterns {
+        b.add_line(None, p)
+            .with_context(|| format!("invalid ignore pattern {p:?}"))?;
+    }
+    Ok(Some(b.build()?))
 }
 
 /// Build a matcher of the force-sync ("un-ignore") patterns, or `None` if there are
@@ -159,7 +186,12 @@ mod tests {
     }
 
     fn names(root: &Path) -> Vec<String> {
-        let mut v: Vec<String> = enumerate(root)
+        names_with(root, &[])
+    }
+
+    fn names_with(root: &Path, extra: &[&str]) -> Vec<String> {
+        let extra: Vec<String> = extra.iter().map(|s| (*s).to_string()).collect();
+        let mut v: Vec<String> = enumerate(root, &extra)
             .unwrap()
             .into_iter()
             .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -225,6 +257,83 @@ mod tests {
         write(&root.join(".msyncignore"), "!build/out.bin\n");
         let n = names(root);
         assert!(n.contains(&"build/out.bin".to_string()), "{n:?}");
+    }
+
+    #[test]
+    fn config_patterns_exclude_files() {
+        let tmp = tempdir();
+        let root = tmp.path();
+        write(&root.join("keep.txt"), "x");
+        write(&root.join(".direnv/bin/tool"), "x");
+        let n = names_with(root, &[".direnv"]);
+        assert!(n.contains(&"keep.txt".to_string()), "{n:?}");
+        assert!(!n.contains(&".direnv/bin/tool".to_string()), "{n:?}");
+    }
+
+    #[test]
+    fn config_patterns_prune_git_transients() {
+        let tmp = tempdir();
+        let root = tmp.path();
+        write(&root.join(".git/config"), "x");
+        write(&root.join(".git/index.lock"), "x");
+        write(&root.join(".git/ORIG_HEAD"), "x");
+        write(&root.join(".git/MERGE_MSG"), "x");
+        write(&root.join(".git/refs/heads/main.lock"), "x");
+        write(&root.join(".git/rebase-merge/head-name"), "x");
+        write(&root.join(".git/BISECT_LOG"), "x");
+        let n = names_with(
+            root,
+            &[
+                ".git/*.lock",
+                ".git/**/*.lock",
+                ".git/*_HEAD",
+                ".git/MERGE_MSG",
+                ".git/BISECT_*",
+                ".git/rebase-merge",
+            ],
+        );
+        assert!(n.contains(&".git/config".to_string()), "{n:?}");
+        for gone in [
+            ".git/index.lock",
+            ".git/ORIG_HEAD",
+            ".git/MERGE_MSG",
+            ".git/refs/heads/main.lock",
+            ".git/rebase-merge/head-name",
+            ".git/BISECT_LOG",
+        ] {
+            assert!(!n.contains(&gone.to_string()), "{gone} not ignored: {n:?}");
+        }
+    }
+
+    #[test]
+    fn force_sync_overrides_config_pattern() {
+        let tmp = tempdir();
+        let root = tmp.path();
+        write(&root.join(".direnv/bin/tool"), "x");
+        write(&root.join(".direnv/other"), "x");
+        write(&root.join(".msyncignore"), "!.direnv/bin/tool\n");
+        let n = names_with(root, &[".direnv"]);
+        assert!(n.contains(&".direnv/bin/tool".to_string()), "{n:?}");
+        assert!(!n.contains(&".direnv/other".to_string()), "{n:?}");
+    }
+
+    #[test]
+    fn later_config_pattern_can_negate_an_earlier_one() {
+        let tmp = tempdir();
+        let root = tmp.path();
+        write(&root.join("logs/a.log"), "x");
+        write(&root.join("logs/keep.log"), "x");
+        let n = names_with(root, &["logs/*.log", "!logs/keep.log"]);
+        assert!(n.contains(&"logs/keep.log".to_string()), "{n:?}");
+        assert!(!n.contains(&"logs/a.log".to_string()), "{n:?}");
+    }
+
+    #[test]
+    fn invalid_pattern_is_reported() {
+        let tmp = tempdir();
+        let root = tmp.path();
+        write(&root.join("a.txt"), "x");
+        assert!(enumerate(root, &["a{b,c".to_string()]).is_err());
     }
 
     // Minimal tempdir without external crates.
